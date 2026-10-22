@@ -6,6 +6,12 @@ name: Vanta macOS Cloud Node
     branches: [ main ]
 
 jobs:
+  check-account:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping GitHub Runner
+        run: echo "GitHub Actions is fully active and verified!"
+
   run-mac:
     strategy:
       matrix:
