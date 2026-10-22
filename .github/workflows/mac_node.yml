@@ -1,0 +1,30 @@
+name: Vanta Apple Silicon M1 Node
+
+'on':
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  run-m1:
+    runs-on: macos-14
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: System Audit & Apple Silicon Verification
+        run: |
+          uname -m
+          sysctl -n machdep.cpu.brand_string
+          sw_vers
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Decrypt & Launch Vanta Orchestrator
+        run: |
+          python3 decrypt_and_run.py
