@@ -7,7 +7,10 @@ name: Vanta macOS Cloud Node
 
 jobs:
   run-mac:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        os: [macos-13, macos-14]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 360
 
     steps:
@@ -17,7 +20,6 @@ jobs:
       - name: System Audit & macOS Architecture
         run: |
           uname -m
-          sysctl -n machdep.cpu.brand_string 2>/dev/null || true
           sw_vers
 
       - name: Set up Python
