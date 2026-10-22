@@ -1,5 +1,16 @@
 import os, sys, subprocess, base64, hashlib, tarfile, time, re
 
+def git_commit_and_push(file_path, message):
+    try:
+        subprocess.run(["git", "config", "--global", "user.name", "github-actions[bot]"], check=True)
+        subprocess.run(["git", "config", "--global", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
+        subprocess.run(["git", "add", file_path], check=True)
+        subprocess.run(["git", "commit", "-m", message], check=True)
+        subprocess.run(["git", "push"], check=True)
+        print("Successfully published status to repository branch!")
+    except Exception as e:
+        print("Git publish error (non-fatal):", e)
+
 def main():
     print("=== VANTA APPLE SILICON RUNNER INITIALIZING ===")
     
@@ -72,9 +83,10 @@ def main():
         with open(summary_file, "a") as sf:
             sf.write(f"\n## 🚀 VANTA Apple Silicon Node Online!\n**Live Endpoint:** `{tunnel_addr}`\n")
             
-    # Write live endpoint to a committed or accessible state
     with open("live_endpoint.txt", "w") as ef:
         ef.write(tunnel_addr)
+        
+    git_commit_and_push("live_endpoint.txt", f"Publish live node endpoint: {tunnel_addr}")
         
     # 6. Keep-alive monitor loop
     print("Orchestrator & Tunnel running. Entering monitor loop...")
