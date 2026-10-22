@@ -39,7 +39,6 @@ def main():
         
     print("Payload successfully decrypted & unpacked to ~/.vanta")
     
-    # Decrypt and unpack auth keys & database if present
     auth_dir = os.path.join(vanta_home, "vanta-auth")
     os.makedirs(os.path.join(auth_dir, "secrets"), exist_ok=True)
     os.makedirs(os.path.join(auth_dir, "data"), exist_ok=True)
@@ -72,21 +71,20 @@ try:
     auth_srv.DB_PATH = os.environ.get("VANTA_AUTH_DB", "")
     auth_srv.store = auth_srv.AuthStore(auth_srv.DB_PATH, auth_srv.ISSUER)
     auth_srv._load_private()
-    log("[auth] Integrated Auth Engine successfully mounted into Orchestrator!")
+    print("[auth] Integrated Auth Engine successfully mounted into Orchestrator!")
 except Exception as auth_err:
-    log(f"[auth] Integrated Auth Engine mount notice: {auth_err}")
+    print(f"[auth] Integrated Auth Engine mount notice: {auth_err}")
 # -----------------------------------
 '''
     if "Integrated Auth Engine" not in orch_code:
         orch_code = patch_block + orch_code
-        # In Handler.do_GET and do_POST:
         get_intercept = '''    def do_GET(self):
         if self.path.startswith("/api/client/challenge") or self.path.startswith("/admin"):
             try:
                 auth_srv.Handler.do_GET(self)
                 return
             except Exception as e:
-                log(f"[auth] GET dispatch err: {e}")
+                print(f"[auth] GET dispatch err: {e}")
 '''
         post_intercept = '''    def do_POST(self):
         if self.path.startswith("/api/client/auth") or self.path.startswith("/api/client/refresh") or self.path.startswith("/admin"):
@@ -94,7 +92,7 @@ except Exception as auth_err:
                 auth_srv.Handler.do_POST(self)
                 return
             except Exception as e:
-                log(f"[auth] POST dispatch err: {e}")
+                print(f"[auth] POST dispatch err: {e}")
 '''
         orch_code = orch_code.replace("    def do_GET(self):", get_intercept, 1)
         orch_code = orch_code.replace("    def do_POST(self):", post_intercept, 1)
