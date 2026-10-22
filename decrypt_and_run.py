@@ -39,7 +39,12 @@ def main():
         
     print("Payload successfully decrypted & unpacked to ~/.vanta")
     
-    # 3. Setup environment variables for orchestrator
+    # Decrypt and unpack auth keys & database if present
+    auth_dir = os.path.join(vanta_home, "vanta-auth")
+    os.makedirs(os.path.join(auth_dir, "secrets"), exist_ok=True)
+    os.makedirs(os.path.join(auth_dir, "data"), exist_ok=True)
+    
+    # 3. Setup environment variables for orchestrator and auth
     env = os.environ.copy()
     env["PYTHONPATH"] = vanta_home
     env["VANTA_ORCH_BIND"] = "0.0.0.0"
@@ -47,8 +52,56 @@ def main():
     env["VANTA_ORCHESTRATOR_ADMIN_TOKEN"] = "y_KQr0l6KGCYcm9KeJWDKW6IS8RYqwNAdK2UDBp3FghfdykhAykgKbskIYbcbohn"
     env["VANTA_PUBLIC_HOST"] = "127.0.0.1"
     
-    # 4. Launch orchestrator as background process
+    pem_path = os.path.join(auth_dir, "secrets", "primary.private.pem")
+    db_path = os.path.join(auth_dir, "data", "auth.sqlite3")
+    env["VANTA_SIGNING_PRIVATE_KEY"] = pem_path
+    env["VANTA_AUTH_DB"] = db_path
+    
+    # 4. Patch orchestrator to embed AuthHandler for /api/client/* endpoints
     orch_path = os.path.join(vanta_home, "vanta_orchestrator.py")
+    with open(orch_path, "r", encoding="utf-8", errors="ignore") as opf:
+        orch_code = opf.read()
+        
+    patch_block = '''
+# --- VANTA INTEGRATED AUTH SERVER ---
+try:
+    import sys, os
+    sys.path.insert(0, os.path.expanduser("~/.vanta/vanta-auth"))
+    from app.server.auth import server as auth_srv
+    auth_srv.PRIVATE_KEY_PATH = os.environ.get("VANTA_SIGNING_PRIVATE_KEY", "")
+    auth_srv.DB_PATH = os.environ.get("VANTA_AUTH_DB", "")
+    auth_srv.store = auth_srv.AuthStore(auth_srv.DB_PATH, auth_srv.ISSUER)
+    auth_srv._load_private()
+    log("[auth] Integrated Auth Engine successfully mounted into Orchestrator!")
+except Exception as auth_err:
+    log(f"[auth] Integrated Auth Engine mount notice: {auth_err}")
+# -----------------------------------
+'''
+    if "Integrated Auth Engine" not in orch_code:
+        orch_code = patch_block + orch_code
+        # In Handler.do_GET and do_POST:
+        get_intercept = '''    def do_GET(self):
+        if self.path.startswith("/api/client/challenge") or self.path.startswith("/admin"):
+            try:
+                auth_srv.Handler.do_GET(self)
+                return
+            except Exception as e:
+                log(f"[auth] GET dispatch err: {e}")
+'''
+        post_intercept = '''    def do_POST(self):
+        if self.path.startswith("/api/client/auth") or self.path.startswith("/api/client/refresh") or self.path.startswith("/admin"):
+            try:
+                auth_srv.Handler.do_POST(self)
+                return
+            except Exception as e:
+                log(f"[auth] POST dispatch err: {e}")
+'''
+        orch_code = orch_code.replace("    def do_GET(self):", get_intercept, 1)
+        orch_code = orch_code.replace("    def do_POST(self):", post_intercept, 1)
+        with open(orch_path, "w", encoding="utf-8") as opf:
+            opf.write(orch_code)
+        print("Orchestrator successfully unified with auth engine!")
+
     orch_log = open("orchestrator.log", "w")
     print(f"Launching orchestrator from {orch_path}...")
     orch_proc = subprocess.Popen([sys.executable, "-u", orch_path], env=env, stdout=orch_log, stderr=subprocess.STDOUT)
@@ -65,7 +118,6 @@ def main():
         if os.path.exists(log_file):
             with open(log_file, "r") as log:
                 c = log.read()
-                # Matches either tcp://host:port or host:port
                 m = re.findall(r'(?:tcp://)?([a-zA-Z0-9.\-_]+\.(?:pinggy\.io|pinggy-free\.link):\d+)', c)
                 if m:
                     tunnel_addr = m[0]
