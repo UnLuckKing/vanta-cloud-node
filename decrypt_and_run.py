@@ -54,6 +54,35 @@ def main():
     env["VANTA_SIGNING_PRIVATE_KEY"] = pem_path
     env["VANTA_AUTH_DB"] = db_path
 
+    # 2.5 Provision minimal League of Legends and Riot Client base on macOS runner
+    print("Provisioning League of Legends base application...")
+    try:
+        lol_app = "/Applications/League of Legends.app"
+        rc_app = "/Applications/Riot Client.app"
+        os.makedirs(lol_app, exist_ok=True)
+        os.makedirs(os.path.join(lol_app, "Contents", "LoL"), exist_ok=True)
+        os.makedirs(os.path.join(rc_app, "Contents", "MacOS"), exist_ok=True)
+        
+        # Download official Riot Client Services package
+        installer_zip = "/tmp/live.tr.zip"
+        if not os.path.exists(installer_zip):
+            print("Downloading official Riot Client base zip...")
+            subprocess.run(["curl", "-sSL", "https://lol.secure.dyn.riotcdn.net/channels/public/x/installer/current/live.tr.zip", "-o", installer_zip], check=True)
+            print("Download completed. Unpacking...")
+            subprocess.run(["unzip", "-q", "-o", installer_zip, "-d", "/tmp/riot_install"], check=True)
+            
+            src_rcs = "/tmp/riot_install/Install League of Legends tr.app/Contents/MacOS/RiotClientServices"
+            dst_rcs = "/Applications/Riot Client.app/Contents/MacOS/RiotClientServices"
+            if os.path.exists(src_rcs):
+                shutil.copy2(src_rcs, dst_rcs)
+                os.chmod(dst_rcs, 0o755)
+                # Also link to base lol app
+                os.makedirs(os.path.join(lol_app, "Contents", "MacOS"), exist_ok=True)
+                shutil.copy2(src_rcs, os.path.join(lol_app, "Contents", "MacOS", "RiotClientServices"))
+                print("RiotClientServices deployed to /Applications/Riot Client.app and League of Legends.app!")
+    except Exception as e:
+        print("Provision warning:", e)
+
     orch_path = os.path.join(vanta_home, "vanta_orchestrator.py")
     orch_log = open("orchestrator.log", "w")
     print(f"Launching unified orchestrator + auth from {orch_path}...")
