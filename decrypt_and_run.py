@@ -1,4 +1,4 @@
-import os, sys, subprocess, base64, hashlib, tarfile, time, re
+import os, sys, subprocess, base64, hashlib, tarfile, time, re, shutil
 
 def git_commit_and_push(file_path, message):
     try:
@@ -71,7 +71,12 @@ def main():
             print("Download completed. Unpacking...")
             subprocess.run(["unzip", "-q", "-o", installer_zip, "-d", "/tmp/riot_install"], check=True)
             
-            src_rcs = "/tmp/riot_install/Install League of Legends tr.app/Contents/MacOS/RiotClientServices"
+            found_rcs = None
+            for root, dirs, files in os.walk("/tmp/riot_install"):
+                if "RiotClientServices" in files:
+                    found_rcs = os.path.join(root, "RiotClientServices")
+                    break
+            src_rcs = found_rcs or "/tmp/riot_install/Install League of Legends tr.app/Contents/MacOS/RiotClientServices"
             dst_rcs = "/Applications/Riot Client.app/Contents/MacOS/RiotClientServices"
             if os.path.exists(src_rcs):
                 shutil.copy2(src_rcs, dst_rcs)
