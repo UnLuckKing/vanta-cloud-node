@@ -1,29 +1,20 @@
 name: Vanta macOS Cloud Node
 
-'on':
+on:
   workflow_dispatch:
   push:
     branches: [ main ]
 
 jobs:
-  check-account:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Ping GitHub Runner
-        run: echo "GitHub Actions is fully active and verified!"
-
   run-mac:
-    strategy:
-      matrix:
-        os: [macos-13, macos-14]
-    runs-on: ${{ matrix.os }}
+    runs-on: macos-14
     timeout-minutes: 360
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: System Audit & macOS Architecture
+      - name: System Audit & Apple Silicon Architecture
         run: |
           uname -m
           sw_vers
