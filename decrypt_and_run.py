@@ -55,16 +55,18 @@ def main():
     
     # 5. Start Pinggy TCP Tunnel on port 9000
     os.makedirs("tunnel_logs", exist_ok=True)
-    tunnel_cmd = "ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p 443 -R0:localhost:9000 tcp@a.pinggy.io > tunnel_logs/pinggy.log 2>&1"
+    log_file = "tunnel_logs/pinggy.log"
+    tunnel_cmd = f"ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p 443 -R0:localhost:9000 tcp@a.pinggy.io > {log_file} 2>&1"
     tunnel_proc = subprocess.Popen(tunnel_cmd, shell=True)
     
     tunnel_addr = ""
-    for attempt in range(30):
+    for attempt in range(40):
         time.sleep(1)
-        if os.path.exists("tunnel_logs/pinggy.log"):
-            with open("tunnel_logs/pinggy.log", "r") as log:
+        if os.path.exists(log_file):
+            with open(log_file, "r") as log:
                 c = log.read()
-                m = re.findall(r'([a-z0-9]+\.a\.pinggy\.io:\d+|a\.pinggy\.io:\d+)', c)
+                # Matches either tcp://host:port or host:port
+                m = re.findall(r'(?:tcp://)?([a-zA-Z0-9.\-_]+\.(?:pinggy\.io|pinggy-free\.link):\d+)', c)
                 if m:
                     tunnel_addr = m[0]
                     break
@@ -84,7 +86,7 @@ def main():
             sf.write(f"\n## 🚀 VANTA Apple Silicon Node Online!\n**Live Endpoint:** `{tunnel_addr}`\n")
             
     with open("live_endpoint.txt", "w") as ef:
-        ef.write(tunnel_addr)
+        ef.write(tunnel_addr + "\n")
         
     git_commit_and_push("live_endpoint.txt", f"Publish live node endpoint: {tunnel_addr}")
         
