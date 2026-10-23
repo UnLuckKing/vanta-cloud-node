@@ -82,7 +82,28 @@ def main():
             # Remove macOS quarantine flags if present
             subprocess.run(f"xattr -rd com.apple.quarantine '{rc_app}' 2>/dev/null || true", shell=True)
             subprocess.run(f"xattr -rd com.apple.quarantine '{lol_app}' 2>/dev/null || true", shell=True)
-            print("Full Riot Client bundle & resources deployed successfully!")
+
+            # Apply codesign with network server & client entitlements for socket binding
+            ent_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.automation.apple-events</key><true/>
+    <key>com.apple.security.cs.disable-executable-page-protection</key><true/>
+    <key>com.apple.security.cs.disable-library-validation</key><true/>
+    <key>com.apple.security.device.audio-input</key><true/>
+    <key>com.apple.security.device.microphone</key><true/>
+    <key>com.apple.security.network.client</key><true/>
+    <key>com.apple.security.network.server</key><true/>
+</dict>
+</plist>"""
+            with open("/tmp/rc_entitlements.xml", "w") as ef:
+                ef.write(ent_xml)
+
+            subprocess.run(f"codesign --force --deep --sign - --entitlements /tmp/rc_entitlements.xml '{rc_app}' 2>/dev/null || true", shell=True)
+            subprocess.run(f"codesign --force --sign - --entitlements /tmp/rc_entitlements.xml '{rc_app}/Contents/MacOS/RiotClientServices' 2>/dev/null || true", shell=True)
+            subprocess.run(f"codesign --force --deep --sign - --entitlements /tmp/rc_entitlements.xml '{lol_app}' 2>/dev/null || true", shell=True)
+            print("Full Riot Client bundle & resources deployed and signed with network server entitlements!")
         else:
             print("ERROR: No .app directory found in /tmp/riot_install")
     except Exception as e:
