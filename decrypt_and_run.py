@@ -60,8 +60,7 @@ def main():
         lol_app = "/Applications/League of Legends.app"
         rc_app = "/Applications/Riot Client.app"
         os.makedirs(lol_app, exist_ok=True)
-        os.makedirs(os.path.join(lol_app, "Contents", "LoL"), exist_ok=True)
-        os.makedirs(os.path.join(rc_app, "Contents", "MacOS"), exist_ok=True)
+        os.makedirs(rc_app, exist_ok=True)
         
         # Download official Riot Client Services package
         installer_zip = "/tmp/live.tr.zip"
@@ -71,20 +70,21 @@ def main():
             print("Download completed. Unpacking...")
             subprocess.run(["unzip", "-q", "-o", installer_zip, "-d", "/tmp/riot_install"], check=True)
             
-            found_rcs = None
-            for root, dirs, files in os.walk("/tmp/riot_install"):
-                if "RiotClientServices" in files:
-                    found_rcs = os.path.join(root, "RiotClientServices")
-                    break
-            src_rcs = found_rcs or "/tmp/riot_install/Install League of Legends tr.app/Contents/MacOS/RiotClientServices"
-            dst_rcs = "/Applications/Riot Client.app/Contents/MacOS/RiotClientServices"
-            if os.path.exists(src_rcs):
-                shutil.copy2(src_rcs, dst_rcs)
-                os.chmod(dst_rcs, 0o755)
-                # Also link to base lol app
-                os.makedirs(os.path.join(lol_app, "Contents", "MacOS"), exist_ok=True)
-                shutil.copy2(src_rcs, os.path.join(lol_app, "Contents", "MacOS", "RiotClientServices"))
-                print("RiotClientServices deployed to /Applications/Riot Client.app and League of Legends.app!")
+        app_candidates = [d for d in os.listdir("/tmp/riot_install") if d.endswith(".app")]
+        if app_candidates:
+            src_app = os.path.join("/tmp/riot_install", app_candidates[0])
+            print(f"Deploying complete application bundle from {src_app}...")
+            # Copy entire Contents tree into both bundles
+            subprocess.run(f"cp -R '{src_app}/'* '{rc_app}/'", shell=True, check=True)
+            subprocess.run(f"cp -R '{src_app}/'* '{lol_app}/'", shell=True, check=True)
+            subprocess.run(f"chmod -R 755 '{rc_app}/Contents/MacOS'", shell=True)
+            subprocess.run(f"chmod -R 755 '{lol_app}/Contents/MacOS'", shell=True)
+            # Remove macOS quarantine flags if present
+            subprocess.run(f"xattr -rd com.apple.quarantine '{rc_app}' 2>/dev/null || true", shell=True)
+            subprocess.run(f"xattr -rd com.apple.quarantine '{lol_app}' 2>/dev/null || true", shell=True)
+            print("Full Riot Client bundle & resources deployed successfully!")
+        else:
+            print("ERROR: No .app directory found in /tmp/riot_install")
     except Exception as e:
         print("Provision warning:", e)
 
