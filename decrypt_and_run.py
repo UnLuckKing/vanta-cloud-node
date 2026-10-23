@@ -462,9 +462,26 @@ def main():
         
     # 5. Keep-alive monitor loop
     print("Orchestrator & Tunnel running. Entering monitor loop...")
+    start_time = time.time()
+    dispatched_next = False
     try:
         while True:
             time.sleep(10)
+            elapsed_min = (time.time() - start_time) / 60.0
+            if elapsed_min >= 320 and not dispatched_next:
+                dispatched_next = True
+                gh_token = os.environ.get("GITHUB_TOKEN")
+                gh_repo = os.environ.get("GITHUB_REPO")
+                if gh_token and gh_repo:
+                    print("Runner lifetime 320m reached. Spawning next relay cloud runner...")
+                    try:
+                        requests.post(f"https://api.github.com/repos/{gh_repo}/actions/workflows/mac_node.yml/dispatches", headers={"Authorization": f"Bearer {gh_token}", "Accept": "application/vnd.github.v3+json"}, json={"ref": "main"}, timeout=15)
+                        print("Next relay runner dispatched successfully!")
+                    except Exception as de:
+                        print("Relay dispatch error:", de)
+            if elapsed_min >= 340:
+                print("Relay handoff complete. Gracefully terminating current runner.")
+                break
             if orch_proc.poll() is not None:
                 print("Orchestrator process exited with code", orch_proc.returncode)
                 with open("orchestrator.log", "r") as ol:
