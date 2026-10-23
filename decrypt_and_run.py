@@ -300,8 +300,11 @@ def main():
             rc_manifest_url,
             "https://ks-foundation.secure.dyn.riotcdn.net/channels/public",
             rc_app,
-            rc_filter
+            rc_filter,
+            save_manifest_path=os.path.join(slots_home, "Riot Client.manifest")
         )
+        with open(os.path.join(slots_home, "Riot Client.ok"), "w") as rc_okf:
+            rc_okf.write(f"{rc_manifest_url}\n")
 
         # Step C: Query latest macOS League of Legends RMAN manifest URL
         lol_manifest_url = "https://lol.secure.dyn.riotcdn.net/channels/public/releases/0DA06B11DEA274E0.manifest"
@@ -314,26 +317,27 @@ def main():
             print("Using fallback LoL manifest URL:", e)
 
         def lol_filter(p):
-            if not (p.startswith("League of Legends.app/") or p.startswith("Plugins/")):
+            if "Chromium Embedded" in p or "LeagueClientUx Helper" in p or "rc-mac.enc" in p:
                 return False
-            if "default-assets" in p or "Chromium Embedded" in p or p.endswith(".pak") or p.endswith("icudtl.dat") or "LeagueClientUx Helper" in p:
+            if p.startswith("Contents/LoL/Plugins/rcp-be-lol-game-data/") and p.endswith(".wad") and "en_GB" not in p and "tr_TR" not in p:
                 return False
-            if p.startswith("Plugins/rcp-fe-") and p.endswith(".wad") and "rcp-fe-lol-kickout" not in p:
+            if p.startswith("Contents/LoL/Plugins/rcp-fe-") and p.endswith(".wad") and "rcp-fe-lol-kickout" not in p:
                 return False
             return True
 
-        lol_dest = os.path.join(lol_app, "Contents", "LoL")
-        os.makedirs(lol_dest, exist_ok=True)
+        # Extract into lol_app (/Applications/League of Legends.app) so manifest paths Contents/LoL/... land directly at Contents/LoL/
         saved_manifest = os.path.join(slots_home, "league_of_legends.live.manifest")
         download_rman_manifest(
             lol_manifest_url,
             "https://lol.secure.dyn.riotcdn.net/channels/public",
-            lol_dest,
+            lol_app,
             lol_filter,
             save_manifest_path=saved_manifest
         )
         with open(os.path.join(slots_home, "league_of_legends.live.ok"), "w") as okf:
             okf.write(f"{lol_manifest_url}\nen_GB\n")
+
+        lol_dest = os.path.join(lol_app, "Contents", "LoL")
 
         # Symlink rcp-fe-lol-kickout/assets.wad into all skipped rcp-fe-* plugin dirs so LeagueClient validates all plugins
         kickout_wad = os.path.join(lol_dest, "Plugins", "rcp-fe-lol-kickout", "assets.wad")
@@ -344,7 +348,22 @@ def main():
                 if pd.startswith("rcp-fe-") and os.path.isdir(pdir):
                     target_wad = os.path.join(pdir, "assets.wad")
                     if not os.path.exists(target_wad):
-                        os.symlink(kickout_wad, target_wad)
+                        try:
+                            os.symlink(kickout_wad, target_wad)
+                        except Exception:
+                            pass
+
+        # Symlink en_GB-assets.wad to default-assets.wad in rcp-be-lol-game-data
+        game_data_dir = os.path.join(plugins_dir, "rcp-be-lol-game-data")
+        en_gb_wad = os.path.join(game_data_dir, "en_GB-assets.wad")
+        if os.path.exists(en_gb_wad):
+            for def_wad_name in ("default-assets.wad", "default-assets2.wad"):
+                def_wad_path = os.path.join(game_data_dir, def_wad_name)
+                if not os.path.exists(def_wad_path):
+                    try:
+                        os.symlink(en_gb_wad, def_wad_path)
+                    except Exception:
+                        pass
 
         # Step D: Compile lightweight C Mach-O sleep shim for UI & 3D Game processes
         shim_c = "/tmp/sleep_shim.c"
@@ -356,6 +375,7 @@ def main():
         shim_targets = [
             os.path.join(rc_app, "Contents", "Frameworks", "Riot Client.app", "Contents", "MacOS", "Riot Client"),
             os.path.join(lol_dest, "League of Legends.app", "Contents", "MacOS", "LeagueClientUx"),
+            os.path.join(lol_dest, "LeagueClient.app", "Contents", "MacOS", "LeagueClientUx"),
             os.path.join(lol_dest, "Game", "LeagueofLegends.app", "Contents", "MacOS", "LeagueofLegends"),
             os.path.expanduser("~/LeagueofLegends_shim")
         ]
