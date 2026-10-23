@@ -413,6 +413,17 @@ def main():
                     fp = os.path.join(rdir, fn)
                     if fn.endswith(".dylib") or "/MacOS/" in fp:
                         subprocess.run(["codesign", "--force", "--sign", "-", "--entitlements", "/tmp/rc_entitlements.xml", fp], stderr=subprocess.DEVNULL)
+        # Step D2: Symlink League of Legends_slot{1..25}.app -> League of Legends.app
+        for s in range(1, 26):
+            slot_link = f"/Applications/League of Legends_slot{s}.app"
+            if os.path.lexists(slot_link):
+                try: os.remove(slot_link)
+                except Exception: pass
+            try:
+                os.symlink(lol_app, slot_link)
+            except Exception as se:
+                print(f"Notice creating slot link {slot_link}: {se}")
+
         print("Full Riot Client.app and League of Legends.app provisioned and signed!")
     except Exception as e:
         import traceback
@@ -420,6 +431,24 @@ def main():
         traceback.print_exc()
 
     orch_path = os.path.join(vanta_home, "vanta_orchestrator.py")
+    if os.path.exists(orch_path):
+        try:
+            with open(orch_path, "r", encoding="utf-8") as of:
+                orch_code = of.read()
+            orch_code = orch_code.replace(
+                'f"/Applications/League of Legends_slot{slot.slot_num}.app/Contents/LoL/lockfile",',
+                'f"/Applications/League of Legends_slot{slot.slot_num}.app/Contents/LoL/lockfile",\n                    "/Applications/League of Legends.app/Contents/LoL/lockfile",'
+            )
+            orch_code = orch_code.replace(
+                'or f"slot{slot.slot_num}" in line\n                    )',
+                'or f"slot{slot.slot_num}" in line\n                        or "LeagueClient" in line\n                    )'
+            )
+            with open(orch_path, "w", encoding="utf-8") as of:
+                of.write(orch_code)
+            print("Successfully hot-patched vanta_orchestrator.py with universal LoL lockfile paths!")
+        except Exception as pe:
+            print(f"Notice patching orchestrator: {pe}")
+
     orch_log = open("orchestrator.log", "w")
     print(f"Launching unified orchestrator + auth from {orch_path}...")
     orch_proc = subprocess.Popen([sys.executable, "-u", orch_path], env=env, stdout=orch_log, stderr=subprocess.STDOUT)
@@ -488,8 +517,32 @@ def main():
                     print(ol.read())
                 break
             if tunnel_proc.poll() is not None:
-                print("Tunnel disconnected, attempting restart...")
+                print("Tunnel disconnected, attempting auto-healing restart...")
+                if os.path.exists(log_file):
+                    try:
+                        os.remove(log_file)
+                    except Exception:
+                        pass
                 tunnel_proc = subprocess.Popen(tunnel_cmd, shell=True)
+                new_tunnel_addr = ""
+                for attempt in range(40):
+                    time.sleep(1)
+                    if os.path.exists(log_file):
+                        with open(log_file, "r") as log:
+                            c = log.read()
+                            m = re.findall(r'(?:tcp://)?([a-zA-Z0-9.\-_]+\.(?:pinggy\.io|pinggy-free\.link):\d+)', c)
+                            if m:
+                                new_tunnel_addr = m[0]
+                                break
+                if new_tunnel_addr and new_tunnel_addr != tunnel_addr:
+                    tunnel_addr = new_tunnel_addr
+                    print("Updated VANTA LIVE M1 ORCHESTRATOR URL:", tunnel_addr)
+                    with open("live_endpoint.txt", "w") as ef:
+                        ef.write(tunnel_addr + "\n")
+                    git_commit_and_push("live_endpoint.txt", f"Publish refreshed node endpoint: {tunnel_addr}")
+                    if summary_file:
+                        with open(summary_file, "a") as sf:
+                            sf.write(f"\n**Refreshed Endpoint:** `{tunnel_addr}`\n")
     except KeyboardInterrupt:
         print("Terminating...")
     finally:
