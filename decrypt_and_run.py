@@ -520,11 +520,11 @@ def main():
                     if m:
                         tunnel_addr = m[0]
                         break
-        if orch_proc.poll() is not None:
-            print("ERROR: Orchestrator died early! Checking log:")
-            with open("orchestrator.log", "r") as ol:
-                print(ol.read())
-            break
+            if orch_proc.poll() is not None:
+                print("ERROR: Orchestrator died early! Checking log:")
+                with open("orchestrator.log", "r") as ol:
+                    print(ol.read())
+                break
             
     print("==================================================")
     print("VANTA LIVE M1 ORCHESTRATOR URL:", tunnel_addr)
