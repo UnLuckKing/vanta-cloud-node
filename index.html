@@ -197,40 +197,8 @@
 
   <script>
     // TOTP Generator (SHA-1 HMAC) for 1-click MFA auto-fill
-    async function generateTOTP(secretBase32) {
-      function base32ToBytes(base32) {
-        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-        let bits = 0, value = 0, output = [];
-        for (let i = 0; i < base32.length; i++) {
-          const val = alphabet.indexOf(base32[i].toUpperCase());
-          if (val === -1) continue;
-          value = (value << 5) | val;
-          bits += 5;
-          if (bits >= 8) {
-            output.push((value >>> (bits - 8)) & 255);
-            bits -= 8;
-          }
-        }
-        return new Uint8Array(output);
-      }
-      const keyBytes = base32ToBytes(secretBase32);
-      const epoch = Math.floor(Date.now() / 1000);
-      const timeStep = Math.floor(epoch / 30);
-      const timeBuffer = new ArrayBuffer(8);
-      const timeView = new DataView(timeBuffer);
-      timeView.setUint32(4, timeStep, false);
-
-      const cryptoKey = await window.crypto.subtle.importKey(
-        "raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]
-      );
-      const signature = await window.crypto.subtle.sign("HMAC", cryptoKey, timeBuffer);
-      const hmac = new Uint8Array(signature);
-      const offset = hmac[hmac.length - 1] & 0x0f;
-      const code = ((hmac[offset] & 0x7f) << 24) |
-                   ((hmac[offset + 1] & 0xff) << 16) |
-                   ((hmac[offset + 2] & 0xff) << 8) |
-                   (hmac[offset + 3] & 0xff);
-      return String(code % 1000000).padStart(6, "0");
+    function generateTOTP(secretBase32) {
+      return totpJs(secretBase32);
     }
 
     let activeLiveNodeUrl = localStorage.getItem('vanta_backend_url') || '';
@@ -348,7 +316,7 @@
       const isFounder=()=>state.role==='founder', canCreate=()=>isFounder()||state.role==='reseller';
       async function api(path,options={}){
         const sessionToken = state.token || localStorage.getItem(SESSION_TOKEN_KEY) || '';
-        const headers=Object.assign({'Content-Type':'application/json','X-CSRF-Token':state.csrf,'X-Session-Token':sessionToken},options.headers||{});
+        const headers=Object.assign({'Content-Type':'application/json','X-CSRF-Token':state.csrf,'X-Session-Token':sessionToken,'Authorization':sessionToken?('Bearer '+sessionToken):''},options.headers||{});
         const base = activeLiveNodeUrl || localStorage.getItem('vanta_backend_url') || '';
         const fullUrl = (base && !path.startsWith('http')) ? (base + path) : path;
         const request=Object.assign({credentials:'include'},options,{headers});
