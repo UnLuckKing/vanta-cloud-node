@@ -27,6 +27,16 @@ jobs:
           uname -m
           sw_vers
 
+      - name: Free Disk Space on macOS
+        run: |
+          echo "=== DISK BEFORE CLEANUP ==="
+          df -h
+          rm -rf /Users/runner/Library/Android || true
+          rm -rf /Library/Developer/CoreSimulator || true
+          rm -rf ~/Library/Caches/* || true
+          echo "=== DISK AFTER CLEANUP ==="
+          df -h
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

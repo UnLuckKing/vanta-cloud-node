@@ -230,6 +230,22 @@ def download_rman_manifest(manifest_url, cdn_base, dest_dir, filter_fn, save_man
 
 def main():
     print("=== VANTA APPLE SILICON RUNNER INITIALIZING ===")
+    print("Executing runner disk cleanup to prevent 100MB disk limit error (005)...")
+    for b_path in [
+        os.path.expanduser("~/Library/Android"),
+        "/Library/Developer/CoreSimulator",
+        os.path.expanduser("~/Library/Caches"),
+        "/tmp/m1_bundle.tar.gz"
+    ]:
+        if os.path.exists(b_path):
+            try:
+                if os.path.isdir(b_path):
+                    shutil.rmtree(b_path, ignore_errors=True)
+                else:
+                    os.remove(b_path)
+            except Exception:
+                pass
+    subprocess.run(["df", "-h"], check=False)
     
     # 1. Install dependencies (including zstandard for RMAN bundle extraction)
     subprocess.run([sys.executable, "-m", "pip", "install", "cryptography", "paramiko", "requests", "pyyaml", "zstandard"], check=True)
