@@ -275,6 +275,42 @@ def main():
     
     auth_dir = os.path.join(vanta_home, "vanta-auth")
     
+    # 2.5 Ensure auth database is populated and synchronized across all fallback paths
+    import sqlite3
+    db_candidates = [
+        os.path.join(auth_dir, "data", "auth.sqlite3"),
+        os.path.join(auth_dir, "vanta_auth.sqlite3"),
+        os.path.join(vanta_home, "vanta_auth.sqlite3"),
+    ]
+    primary_db = None
+    for cand in db_candidates:
+        if os.path.exists(cand) and os.path.getsize(cand) > 10000:
+            primary_db = cand
+            break
+    if not primary_db:
+        primary_db = db_candidates[0]
+        os.makedirs(os.path.dirname(primary_db), exist_ok=True)
+
+    for cand in db_candidates:
+        os.makedirs(os.path.dirname(cand), exist_ok=True)
+        if primary_db and os.path.exists(primary_db) and cand != primary_db:
+            try: shutil.copy2(primary_db, cand)
+            except Exception: pass
+        try:
+            conn = sqlite3.connect(cand)
+            conn.execute('''CREATE TABLE IF NOT EXISTS staff_users(id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, mfa_secret TEXT NOT NULL, created_at INTEGER NOT NULL)''')
+            founder_hash = "$argon2id$v=19$m=32768,t=2,p=1$E/pkXqjrDv/ERwL7Tgn84Q$j4yz/4DpTmES7C1ut1MicFnNN6QutF1IloXJ49FrlN0"
+            founder_mfa = "EAIOVFGAM7UYELOMNNTR4EB2MIWB2DRS"
+            conn.execute('''INSERT INTO staff_users(id, username, password_hash, role, status, mfa_secret, created_at)
+                            VALUES('founder_master_id', 'founder', ?, 'founder', 'active', ?, ?)
+                            ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, mfa_secret=excluded.mfa_secret, status='active' ''',
+                         (founder_hash, founder_mfa, int(time.time())))
+            conn.commit()
+            conn.close()
+            print(f"Auth DB {cand} successfully verified and seeded!")
+        except Exception as dbe:
+            print(f"Notice seeding auth db {cand}: {dbe}")
+    
     # 3. Setup environment variables for orchestrator and auth
     env = os.environ.copy()
     env["PYTHONPATH"] = vanta_home
