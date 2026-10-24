@@ -309,7 +309,7 @@
         const sessionToken = state.token || localStorage.getItem(SESSION_TOKEN_KEY) || '';
         const headers=Object.assign({'Content-Type':'application/json','X-CSRF-Token':state.csrf,'X-Session-Token':sessionToken,'Authorization':sessionToken?('Bearer '+sessionToken):''},options.headers||{});
         const isStaticHosting = window.location.hostname.includes('github.io') || window.location.protocol === 'file:';
-        const base = isStaticHosting ? (activeLiveNodeUrl || localStorage.getItem('vanta_backend_url') || '') : '';
+        const base = isStaticHosting ? (activeLiveNodeUrl || '') : '';
         const fullUrl = (base && !path.startsWith('http')) ? (base + path) : path;
         const request=Object.assign({credentials:'include'},options,{headers});
         const response=await fetch(fullUrl,request);let data={};try{data=await response.json();}catch(_){}if(!response.ok){const error=new Error(data.error||`Request failed (${response.status})`);error.status=response.status;throw error;}return data;}
