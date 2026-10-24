@@ -453,22 +453,57 @@ def main():
     print(f"Launching unified orchestrator + auth from {orch_path}...")
     orch_proc = subprocess.Popen([sys.executable, "-u", orch_path], env=env, stdout=orch_log, stderr=subprocess.STDOUT)
     
-    # 4. Start Pinggy TCP Tunnel on port 9000
+    # 4. Start Cloudflare Quick Tunnel (Primary: Zero 60-min drops, <20ms edge Anycast) + Pinggy (Fallback)
     os.makedirs("tunnel_logs", exist_ok=True)
+    
+    # Cloudflared Darwin ARM64 auto-bootstrap
+    cf_bin = os.path.join(os.getcwd(), "cloudflared")
+    if not os.path.exists(cf_bin):
+        try:
+            print("Downloading cloudflared Darwin ARM64 binary...")
+            subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", cf_bin, "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64"], check=True)
+            os.chmod(cf_bin, 0o755)
+            print("cloudflared binary ready.")
+        except Exception as ce:
+            print("Notice downloading cloudflared:", ce)
+
+    cf_tunnel_addr = ""
+    cf_proc = None
+    if os.path.exists(cf_bin):
+        cf_log = "tunnel_logs/cloudflared.log"
+        cf_cmd = f"{cf_bin} tunnel --url http://localhost:9000 --no-autoupdate > {cf_log} 2>&1"
+        try:
+            cf_proc = subprocess.Popen(cf_cmd, shell=True)
+            for _ in range(25):
+                time.sleep(1)
+                if os.path.exists(cf_log):
+                    with open(cf_log, "r", errors="ignore") as lf:
+                        txt = lf.read()
+                    m = re.findall(r'https://([a-zA-Z0-9-]+\.trycloudflare\.com)', txt)
+                    if m:
+                        cf_tunnel_addr = m[0]
+                        print("==================================================")
+                        print("VANTA LIVE CLOUDFLARE QUICK TUNNEL URL:", cf_tunnel_addr)
+                        print("==================================================")
+                        break
+        except Exception as cfe:
+            print("Notice starting cloudflared:", cfe)
+
     log_file = "tunnel_logs/pinggy.log"
     tunnel_cmd = f"ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p 443 -R0:localhost:9000 tcp@a.pinggy.io > {log_file} 2>&1"
     tunnel_proc = subprocess.Popen(tunnel_cmd, shell=True)
     
-    tunnel_addr = ""
-    for attempt in range(40):
-        time.sleep(1)
-        if os.path.exists(log_file):
-            with open(log_file, "r") as log:
-                c = log.read()
-                m = re.findall(r'(?:tcp://)?([a-zA-Z0-9.\-_]+\.(?:pinggy\.io|pinggy-free\.link):\d+)', c)
-                if m:
-                    tunnel_addr = m[0]
-                    break
+    tunnel_addr = cf_tunnel_addr
+    if not tunnel_addr:
+        for attempt in range(40):
+            time.sleep(1)
+            if os.path.exists(log_file):
+                with open(log_file, "r") as log:
+                    c = log.read()
+                    m = re.findall(r'(?:tcp://)?([a-zA-Z0-9.\-_]+\.(?:pinggy\.io|pinggy-free\.link):\d+)', c)
+                    if m:
+                        tunnel_addr = m[0]
+                        break
         if orch_proc.poll() is not None:
             print("ERROR: Orchestrator died early! Checking log:")
             with open("orchestrator.log", "r") as ol:
