@@ -459,6 +459,45 @@ def main():
                 'or f"slot{slot.slot_num}" in line\n                    )',
                 'or f"slot{slot.slot_num}" in line\n                        or "LeagueClient" in line\n                    )'
             )
+            # Hot-patch slot_reaper_loop to ensure LeagueClient and recent client activity never cause premature eviction
+            old_reaper = '''                    # Check if RiotClient process is still alive. If RiotClient is alive, slot is healthy.
+                    rc_alive = False
+                    if getattr(s, "rc_pid", None):
+                        try:
+                            os.kill(s.rc_pid, 0)
+                            rc_alive = True
+                        except (ProcessLookupError, OSError):
+                            pass
+
+                    # If RiotClient died completely, slot is orphaned
+                    if not rc_alive and getattr(s, "rc_pid", None):
+                        to_clean.append((sid, f"RiotClient process {s.rc_pid} terminated"))
+                        continue'''
+
+            new_reaper = '''                    # Check if RiotClient OR LeagueClient process is still alive. If either is alive, slot is healthy.
+                    rc_alive = False
+                    if getattr(s, "rc_pid", None):
+                        try:
+                            os.kill(s.rc_pid, 0)
+                            rc_alive = True
+                        except (ProcessLookupError, OSError):
+                            pass
+
+                    lc_alive = False
+                    if getattr(s, "lc_pid", None):
+                        try:
+                            os.kill(s.lc_pid, 0)
+                            lc_alive = True
+                        except (ProcessLookupError, OSError):
+                            pass
+
+                    # Slot is healthy if LeagueClient or RiotClient is alive, or if client actively polled recently
+                    if not rc_alive and not lc_alive:
+                        if (now - getattr(s, "last_poll", now)) < 300.0:
+                            continue
+                        to_clean.append((sid, f"Processes terminated (rc={s.rc_pid}, lc={getattr(s, 'lc_pid', None)})"))
+                        continue'''
+            orch_code = orch_code.replace(old_reaper, new_reaper)
             with open(orch_path, "w", encoding="utf-8") as of:
                 of.write(orch_code)
             print("Successfully hot-patched vanta_orchestrator.py with universal LoL lockfile paths!")

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+temp_test_orch.py
+burn_auth_into_bundle.py
+bundle_db.sqlite3
+vanta_auth.sqlite3
+tunnel_logs/
+cloudflared
