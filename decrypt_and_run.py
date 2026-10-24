@@ -248,7 +248,7 @@ def main():
     subprocess.run(["df", "-h"], check=False)
     
     # 1. Install dependencies (including zstandard for RMAN bundle extraction)
-    subprocess.run([sys.executable, "-m", "pip", "install", "cryptography", "paramiko", "requests", "pyyaml", "zstandard"], check=True)
+    subprocess.run([sys.executable, "-m", "pip", "install", "cryptography", "paramiko", "requests", "pyyaml", "zstandard", "argon2-cffi"], check=True)
     import requests
     from cryptography.fernet import Fernet
     
