@@ -305,9 +305,14 @@ def main():
                             VALUES('founder_master_id', 'founder', ?, 'founder', 'active', ?, ?)
                             ON CONFLICT(username) DO UPDATE SET password_hash=excluded.password_hash, mfa_secret=excluded.mfa_secret, status='active' ''',
                          (founder_hash, founder_mfa, int(time.time())))
+            conn.execute('''CREATE TABLE IF NOT EXISTS license_keys(id TEXT PRIMARY KEY, key_digest TEXT UNIQUE NOT NULL, display_prefix TEXT NOT NULL, masked_key TEXT NOT NULL, owner_reseller_id TEXT, plan_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL, starts_at INTEGER, expires_at INTEGER, max_devices INTEGER NOT NULL, created_by TEXT NOT NULL, revoked_at INTEGER, revoked_reason TEXT)''')
+            founder_digest = hashlib.sha256("VNT-M9SH-Q58X-Y6WC-AQ63-W7MT-LXHZ-4KSM".encode("ascii")).hexdigest()
+            conn.execute('''INSERT OR REPLACE INTO license_keys(id, key_digest, display_prefix, masked_key, owner_reseller_id, plan_id, status, created_at, starts_at, expires_at, max_devices, created_by)
+                            VALUES('founder_master_lic_id', ?, 'VNT', 'VNT-M9SH-****-****-****-****-4KSM', NULL, 'default', 'active', ?, ?, ?, 999, 'founder')''',
+                         (founder_digest, int(time.time()), int(time.time()), int(time.time()) + 365*86400))
             conn.commit()
             conn.close()
-            print(f"Auth DB {cand} successfully verified and seeded!")
+            print(f"Auth DB {cand} successfully verified and seeded with Founder Master License!")
         except Exception as dbe:
             print(f"Notice seeding auth db {cand}: {dbe}")
     
