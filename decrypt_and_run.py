@@ -325,6 +325,15 @@ def main():
                          (founder_digest, int(time.time()), int(time.time()), int(time.time()) + 365*86400))
             conn.commit()
             conn.close()
+            try:
+                sync_resp = requests.get("https://pnl.vantacheat.com/api/keys/sync", timeout=8).json()
+                for kitem in sync_resp.get("keys", []):
+                    conn.execute("""INSERT OR REPLACE INTO license_keys(id, key_digest, display_prefix, masked_key, owner_reseller_id, plan_id, status, created_at, starts_at, expires_at, max_devices, created_by, revoked_at, revoked_reason)
+                                    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                 (kitem["id"], kitem["key_digest"], kitem.get("display_prefix", "VNT"), kitem.get("masked_key", "VNT-****"), kitem.get("owner_reseller_id"), kitem.get("plan_id", "default"), kitem.get("status", "active"), int(kitem.get("created_at") or time.time()), kitem.get("starts_at"), kitem.get("expires_at"), int(kitem.get("max_devices") or 999), kitem.get("created_by", "founder"), kitem.get("revoked_at"), kitem.get("revoked_reason")))
+                conn.commit()
+            except Exception as se:
+                print("Edge key sync notice:", se)
             print(f"Auth DB {cand} successfully verified and seeded with Founder Master License!")
         except Exception as dbe:
             print(f"Notice seeding auth db {cand}: {dbe}")
@@ -421,7 +430,7 @@ def main():
             print("Using fallback LoL manifest URL:", e)
 
         def lol_filter(p):
-            if p.startswith("Contents/LoL/Game/") or "/Game/" in p:
+            if (p.startswith("Contents/LoL/Game/") or "/Game/" in p) and (p.endswith(".wad") or p.endswith(".wad.client") or p.endswith(".bin")):
                 return False
             if "Chromium Embedded" in p or "LeagueClientUx Helper" in p or "rc-mac.enc" in p:
                 return False
@@ -588,6 +597,10 @@ def main():
                         to_clean.append((sid, f"Processes terminated (rc={s.rc_pid}, lc={getattr(s, 'lc_pid', None)})"))
                         continue'''
             orch_code = orch_code.replace(old_reaper, new_reaper)
+            # Disable RCS /product-launcher/ call so Keystone never triggers 15GB background RMAN patching or locks Practice Tool
+            orch_code = orch_code.replace("for attempt in range(10):", "for attempt in range(0):")
+            # Spawn LeagueClient immediately on poll_iter >= 0 instead of waiting 6 seconds (poll_iter >= 4)
+            orch_code = orch_code.replace("and poll_iter >= 4:", "and poll_iter >= 0:")
             with open(orch_path, "w", encoding="utf-8") as of:
                 of.write(orch_code)
             print("Successfully hot-patched vanta_orchestrator.py with universal LoL lockfile paths!")

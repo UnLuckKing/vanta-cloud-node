@@ -6,6 +6,11 @@ on:
     - cron: '0 */5 * * *'
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'live_endpoint.txt'
+      - 'auth_backup.enc'
+      - 'admin.html'
+      - 'index.html'
 
 permissions:
   contents: write
