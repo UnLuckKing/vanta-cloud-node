@@ -430,8 +430,9 @@ def main():
             print("Using fallback LoL manifest URL:", e)
 
         def lol_filter(p):
-            if (p.startswith("Contents/LoL/Game/") or "/Game/" in p) and (p.endswith(".wad") or p.endswith(".wad.client") or p.endswith(".bin")):
-                return False
+            if (p.startswith("Contents/LoL/Game/") or "/Game/" in p) and (p.endswith(".wad") or p.endswith(".wad.client")):
+                if re.search(r'\.[a-z]{2}_[A-Z]{2}\.wad', p) and ("en_GB" not in p and "tr_TR" not in p and "en_US" not in p):
+                    return False
             if "Chromium Embedded" in p or "LeagueClientUx Helper" in p or "rc-mac.enc" in p:
                 return False
             if p.startswith("Contents/LoL/Plugins/rcp-be-lol-game-data/") and p.endswith(".wad") and "en_GB" not in p and "tr_TR" not in p:
@@ -601,6 +602,25 @@ def main():
             orch_code = orch_code.replace("for attempt in range(10):", "for attempt in range(0):")
             # Spawn LeagueClient immediately on poll_iter >= 0 instead of waiting 6 seconds (poll_iter >= 4)
             orch_code = orch_code.replace("and poll_iter >= 4:", "and poll_iter >= 0:")
+            # Reuse healthy game_ready slot on same-account reconnect instead of killing and triggering Riot LCE-4F790D59
+            old_reclaim = '''                    if is_same_account or is_same_device:
+                        reclaim_events.append(("INFO", "RECONNECT_RECLAIM", f"Auto-clearing previous slot {s.slot_num} ({sid[:8]})", s.slot_num, sid))
+                        _cleanup_slot_locked(sid)'''
+            new_reclaim = '''                    if is_same_account or is_same_device:
+                        if getattr(s, "status", "") == "game_ready" and getattr(s, "lc_pid", None):
+                            try:
+                                os.kill(s.lc_pid, 0)
+                                s.last_poll = time.time()
+                                s.license_id = claims["sub"]
+                                s.session_id = claims["sid"]
+                                s.device_thumbprint = claims["device_key_thumbprint"]
+                                self._json(200, {"slot_id": sid, "proxy_port": s.proxy_port, "lcu_port": s.lcu_port, "udp_proxy_port": s.udp_proxy_port, "max_slots": MAX_SLOTS, "active_count": len(slots), "slot_generation": s.slot_generation, "reused": True})
+                                return
+                            except Exception:
+                                pass
+                        reclaim_events.append(("INFO", "RECONNECT_RECLAIM", f"Auto-clearing previous slot {s.slot_num} ({sid[:8]})", s.slot_num, sid))
+                        _cleanup_slot_locked(sid)'''
+            orch_code = orch_code.replace(old_reclaim, new_reclaim)
             with open(orch_path, "w", encoding="utf-8") as of:
                 of.write(orch_code)
             print("Successfully hot-patched vanta_orchestrator.py with universal LoL lockfile paths!")
