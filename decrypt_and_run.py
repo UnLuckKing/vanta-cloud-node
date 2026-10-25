@@ -277,6 +277,17 @@ def main():
     
     # 2.5 Ensure auth database is populated and synchronized across all fallback paths
     import sqlite3
+    backup_enc_path = os.path.join(os.getcwd(), "auth_backup.enc")
+    restored_db_tmp = "/tmp/restored_auth.sqlite3"
+    if os.path.exists(backup_enc_path):
+        try:
+            with open(backup_enc_path, "rb") as bf:
+                dec_db = f.decrypt(bf.read())
+            with open(restored_db_tmp, "wb") as rf:
+                rf.write(dec_db)
+            print("Successfully decrypted persistent auth_backup.enc from repository!")
+        except Exception as rbe:
+            print("Notice decrypting auth_backup.enc:", rbe)
     db_candidates = [
         os.path.join(auth_dir, "data", "auth.sqlite3"),
         os.path.join(auth_dir, "vanta_auth.sqlite3"),
@@ -287,6 +298,8 @@ def main():
         if os.path.exists(cand) and os.path.getsize(cand) > 10000:
             primary_db = cand
             break
+    if os.path.exists(restored_db_tmp) and os.path.getsize(restored_db_tmp) > 4096:
+        primary_db = restored_db_tmp
     if not primary_db:
         primary_db = db_candidates[0]
         os.makedirs(os.path.dirname(primary_db), exist_ok=True)
@@ -662,10 +675,44 @@ def main():
     print("Orchestrator & Tunnel running. Entering monitor loop...")
     start_time = time.time()
     dispatched_next = False
+    last_db_hash = ""
     try:
         while True:
             time.sleep(10)
             elapsed_min = (time.time() - start_time) / 60.0
+            # Auto-backup auth.sqlite3 to encrypted auth_backup.enc on any key change
+            try:
+                if os.path.exists(db_path):
+                    with open(db_path, "rb") as dbf:
+                        raw_db = dbf.read()
+                    cur_hash = hashlib.sha256(raw_db).hexdigest()
+                    if cur_hash != last_db_hash:
+                        last_db_hash = cur_hash
+                        with open("auth_backup.enc", "wb") as abf:
+                            abf.write(f.encrypt(raw_db))
+                        git_commit_and_push("auth_backup.enc", "Auto-sync encrypted license database backup")
+            except Exception as dbe:
+                pass
+            # Auto-heal Cloudflare Quick Tunnel if it ever drops
+            if cf_proc is not None and cf_proc.poll() is not None and os.path.exists(cf_bin):
+                try:
+                    cf_log = "tunnel_logs/cloudflared.log"
+                    if os.path.exists(cf_log):
+                        os.remove(cf_log)
+                    cf_proc = subprocess.Popen(f"{cf_bin} tunnel --url http://localhost:9000 --no-autoupdate > {cf_log} 2>&1", shell=True)
+                    for _ in range(20):
+                        time.sleep(1)
+                        if os.path.exists(cf_log):
+                            with open(cf_log, "r", errors="ignore") as lf:
+                                m = re.findall(r'https://([a-zA-Z0-9-]+\.trycloudflare\.com)', lf.read())
+                            if m:
+                                tunnel_addr = m[0]
+                                with open("live_endpoint.txt", "w") as ef:
+                                    ef.write(tunnel_addr + "\n")
+                                git_commit_and_push("live_endpoint.txt", f"Publish healed Cloudflare endpoint: {tunnel_addr}")
+                                break
+                except Exception:
+                    pass
             if elapsed_min >= 320 and not dispatched_next:
                 dispatched_next = True
                 gh_token = os.environ.get("GITHUB_TOKEN")
