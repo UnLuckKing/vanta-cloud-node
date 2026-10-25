@@ -408,6 +408,8 @@ def main():
             print("Using fallback LoL manifest URL:", e)
 
         def lol_filter(p):
+            if p.startswith("Contents/LoL/Game/") or "/Game/" in p:
+                return False
             if "Chromium Embedded" in p or "LeagueClientUx Helper" in p or "rc-mac.enc" in p:
                 return False
             if p.startswith("Contents/LoL/Plugins/rcp-be-lol-game-data/") and p.endswith(".wad") and "en_GB" not in p and "tr_TR" not in p:
@@ -591,7 +593,9 @@ def main():
     if not os.path.exists(cf_bin):
         try:
             print("Downloading cloudflared Darwin ARM64 binary...")
-            subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", cf_bin, "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64"], check=True)
+            cf_tgz = "/tmp/cloudflared-darwin-arm64.tgz"
+            subprocess.run(["curl", "-fsSL", "--retry", "3", "-o", cf_tgz, "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz"], check=True)
+            subprocess.run(["tar", "-xzf", cf_tgz, "-C", os.getcwd()], check=True)
             os.chmod(cf_bin, 0o755)
             print("cloudflared binary ready.")
         except Exception as ce:
@@ -681,7 +685,7 @@ def main():
                 with open("orchestrator.log", "r") as ol:
                     print(ol.read())
                 break
-            if tunnel_proc.poll() is not None:
+            if tunnel_proc.poll() is not None and (not cf_proc or cf_proc.poll() is not None):
                 print("Tunnel disconnected, attempting auto-healing restart...")
                 if os.path.exists(log_file):
                     try:
