@@ -437,8 +437,21 @@ def main():
                 return False
             if p.startswith("Contents/LoL/Plugins/rcp-be-lol-game-data/") and p.endswith(".wad") and "en_GB" not in p and "tr_TR" not in p:
                 return False
-            if p.startswith("Contents/LoL/Plugins/rcp-fe-") and p.endswith(".wad") and "rcp-fe-lol-kickout" not in p:
-                return False
+            if p.startswith("Contents/LoL/Plugins/rcp-fe-") and p.endswith(".wad"):
+                allowed_fe = (
+                    "rcp-fe-lol-parties",
+                    "rcp-fe-lol-champ-select",
+                    "rcp-fe-lol-navigation",
+                    "rcp-fe-common-libs",
+                    "rcp-fe-ember-libs",
+                    "rcp-fe-audio",
+                    "rcp-fe-lol-shared-components",
+                    "rcp-fe-lol-uikit",
+                    "rcp-fe-lol-l10n",
+                    "rcp-fe-lol-kickout"
+                )
+                if not any(a in p for a in allowed_fe):
+                    return False
             return True
 
         # Extract into lol_app (/Applications/League of Legends.app) so manifest paths Contents/LoL/... land directly at Contents/LoL/
@@ -598,8 +611,8 @@ def main():
                         to_clean.append((sid, f"Processes terminated (rc={s.rc_pid}, lc={getattr(s, 'lc_pid', None)})"))
                         continue'''
             orch_code = orch_code.replace(old_reaper, new_reaper)
-            # Disable RCS /product-launcher/ call so Keystone never triggers 15GB background RMAN patching or locks Practice Tool
-            orch_code = orch_code.replace("for attempt in range(10):", "for attempt in range(0):")
+            # Ensure RCS /product-launcher/ runs with timeout tolerance so Keystone authorizes the game session
+            orch_code = orch_code.replace("for attempt in range(25):", "for attempt in range(15):")
             # Spawn LeagueClient immediately on poll_iter >= 0 instead of waiting 6 seconds (poll_iter >= 4)
             orch_code = orch_code.replace("and poll_iter >= 4:", "and poll_iter >= 0:")
             # Reuse healthy game_ready slot on same-account reconnect instead of killing and triggering Riot LCE-4F790D59
