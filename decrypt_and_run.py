@@ -634,6 +634,138 @@ def main():
                         reclaim_events.append(("INFO", "RECONNECT_RECLAIM", f"Auto-clearing previous slot {s.slot_num} ({sid[:8]})", s.slot_num, sid))
                         _cleanup_slot_locked(sid)'''
             orch_code = orch_code.replace(old_reclaim, new_reclaim)
+            
+            # Hot-patch OrchestratorHandler to bridge /ws directly over Cloudflare Quick Tunnel on Port 9000
+            ws_target = "        parsed = urlparse(self.path)\n"
+            ws_bridge = '''        parsed = urlparse(self.path)
+        if parsed.path == "/ws" or self.path.startswith("/ws"):
+            ws_key = self.headers.get("Sec-WebSocket-Key", "").strip()
+            if ws_key:
+                accept_raw = hashlib.sha1((ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+                ws_accept = base64.b64encode(accept_raw).decode()
+                resp = (
+                    "HTTP/1.1 101 Switching Protocols\\r\\n"
+                    "Upgrade: websocket\\r\\n"
+                    "Connection: Upgrade\\r\\n"
+                    f"Sec-WebSocket-Accept: {ws_accept}\\r\\n\\r\\n"
+                )
+                self.wfile.write(resp.encode())
+                self.wfile.flush()
+                self.close_connection = True
+
+                params = parse_qs(parsed.query)
+                try: ws_slot_num = int(params.get("slot", [1])[0])
+                except Exception: ws_slot_num = 1
+                try: req_port = int(params.get("port", [8150])[0])
+                except Exception: req_port = 8150
+
+                is_lcu = (req_port == 8096 or 8150 <= req_port <= 8200 or 9300 <= req_port <= 9450)
+                target_port = resolve_slot_target_port(ws_slot_num, is_lcu)
+                if not target_port: target_port = req_port
+
+                t_sock = None
+                for _ in range(30):
+                    try:
+                        cand = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        cand.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                        cand.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                        cand.connect(("127.0.0.1", target_port))
+                        t_sock = cand
+                        break
+                    except Exception:
+                        time.sleep(0.1)
+
+                if not t_sock:
+                    try: self.connection.close()
+                    except Exception: pass
+                    return
+
+                c_sock = self.connection
+                stop = [False]
+
+                def t_to_c():
+                    try:
+                        while not stop[0]:
+                            data = t_sock.recv(32768)
+                            if not data: break
+                            length = len(data)
+                            if length < 126:
+                                header = struct.pack("!BB", 0x82, length)
+                            elif length <= 0xFFFF:
+                                header = struct.pack("!BBH", 0x82, 126, length)
+                            else:
+                                header = struct.pack("!BBQ", 0x82, 127, length)
+                            c_sock.sendall(header + data)
+                    except Exception: pass
+                    finally:
+                        stop[0] = True
+                        try: c_sock.close()
+                        except Exception: pass
+                        try: t_sock.close()
+                        except Exception: pass
+
+                def c_to_t():
+                    try:
+                        buf = bytearray()
+                        while not stop[0]:
+                            while len(buf) >= 2:
+                                b1 = buf[0]
+                                b2 = buf[1]
+                                opcode = b1 & 0x0F
+                                masked = (b2 & 0x80) != 0
+                                payload_len = b2 & 0x7F
+                                offset = 2
+                                if payload_len == 126:
+                                    if len(buf) < 4: break
+                                    payload_len = struct.unpack("!H", buf[2:4])[0]
+                                    offset = 4
+                                elif payload_len == 127:
+                                    if len(buf) < 10: break
+                                    payload_len = struct.unpack("!Q", buf[2:10])[0]
+                                    offset = 10
+                                mask_key = None
+                                if masked:
+                                    if len(buf) < offset + 4: break
+                                    mask_key = buf[offset:offset+4]
+                                    offset += 4
+                                if len(buf) < offset + payload_len: break
+                                payload = buf[offset:offset+payload_len]
+                                del buf[:offset+payload_len]
+                                if opcode == 0x8:
+                                    stop[0] = True
+                                    return
+                                elif opcode == 0x9:
+                                    c_sock.sendall(struct.pack("!BB", 0x8A, 0))
+                                    continue
+                                elif opcode in (0x0, 0x1, 0x2):
+                                    if masked and mask_key:
+                                        plen = len(payload)
+                                        if plen > 0:
+                                            rep = (mask_key * ((plen >> 2) + 1))[:plen]
+                                            unmasked = (int.from_bytes(payload, "little") ^ int.from_bytes(rep, "little")).to_bytes(plen, "little")
+                                            t_sock.sendall(unmasked)
+                                    else:
+                                        t_sock.sendall(payload)
+                            chunk = c_sock.recv(32768)
+                            if not chunk: break
+                            buf.extend(chunk)
+                    except Exception: pass
+                    finally:
+                        stop[0] = True
+                        try: c_sock.close()
+                        except Exception: pass
+                        try: t_sock.close()
+                        except Exception: pass
+
+                t1 = threading.Thread(target=t_to_c, daemon=True)
+                t2 = threading.Thread(target=c_to_t, daemon=True)
+                t1.start()
+                t2.start()
+                t1.join()
+                t2.join()
+                return
+'''
+            orch_code = orch_code.replace(ws_target, ws_bridge, 1)
             with open(orch_path, "w", encoding="utf-8") as of:
                 of.write(orch_code)
             print("Successfully hot-patched vanta_orchestrator.py with universal LoL lockfile paths!")

@@ -12,6 +12,10 @@ on:
       - 'admin.html'
       - 'index.html'
 
+concurrency:
+  group: vanta-mac-node
+  cancel-in-progress: true
+
 permissions:
   contents: write
   actions: write
