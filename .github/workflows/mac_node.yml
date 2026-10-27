@@ -2,15 +2,12 @@ name: Vanta macOS Cloud Node
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 */5 * * *'
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'live_endpoint.txt'
-      - 'auth_backup.enc'
-      - 'admin.html'
-      - 'index.html'
+    paths:
+      - '.github/workflows/mac_node.yml'
+      - 'decrypt_and_run.py'
+      - 'm1_bundle.enc'
 
 concurrency:
   group: vanta-mac-node
