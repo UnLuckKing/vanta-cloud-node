@@ -660,8 +660,61 @@ def main():
                 except Exception: req_port = 8150
 
                 is_lcu = (req_port == 8096 or 8150 <= req_port <= 8200 or 9300 <= req_port <= 9450)
-                target_port = resolve_slot_target_port(ws_slot_num, is_lcu)
-                if not target_port: target_port = req_port
+
+                # --- FIX: self-contained target resolution -------------------------------
+                # The proxy pool's resolve_slot_target_port() is a nested closure and is NOT
+                # in scope inside do_GET. Calling it raised NameError, the exception escaped
+                # the handler and the socket was closed right after the 101 upgrade, so every
+                # LCU connection died with "tunnel dial failed". This resolver never reaches
+                # outside its own scope and never fails silently.
+                def _emit(msg):
+                    try:
+                        _log = globals().get("log")
+                        if callable(_log):
+                            _log(msg)
+                        elif callable(globals().get("log_event")):
+                            globals()["log_event"](msg)
+                        else:
+                            print(msg, flush=True)
+                    except Exception:
+                        try: print(msg, flush=True)
+                        except Exception: pass
+
+                def _vanta_pick_port(slot_num_v, is_lcu_v, req_port_v):
+                    try:
+                        _fn = globals().get("resolve_slot_target_port")
+                        if callable(_fn):
+                            _got = _fn(slot_num_v or 1, is_lcu_v)
+                            if _got:
+                                return int(_got)
+                    except Exception as _e:
+                        _emit("[ws-bridge] resolve_slot_target_port failed: %r" % (_e,))
+                    for _name in ("get_slot_by_num", "_get_slot_by_num", "slot_by_num"):
+                        _getter = globals().get(_name)
+                        if callable(_getter) and slot_num_v:
+                            try:
+                                _s = _getter(slot_num_v)
+                                if _s is not None:
+                                    _p = getattr(_s, "app_port" if is_lcu_v else "rc_port", None)
+                                    if _p: return int(_p)
+                            except Exception: pass
+                    try:
+                        _reg = globals().get("slots")
+                        if isinstance(_reg, dict) and slot_num_v:
+                            for _slot in list(_reg.values()):
+                                if getattr(_slot, "slot_num", None) == slot_num_v:
+                                    _p = getattr(_slot, "app_port" if is_lcu_v else "rc_port", None)
+                                    if _p: return int(_p)
+                    except Exception: pass
+                    return int(req_port_v or 8150)
+
+                if 8080 <= req_port <= 8300 or 9000 <= req_port <= 9700:
+                    # public/pool number: map it through the slot registry
+                    target_port = _vanta_pick_port(ws_slot_num, is_lcu, req_port)
+                else:
+                    # already a real internal port on the node
+                    target_port = req_port
+                _emit("[ws-bridge] slot=%s lcu=%s req=%s -> target=%s" % (ws_slot_num, is_lcu, req_port, target_port))
 
                 t_sock = None
                 for _ in range(30):
@@ -676,6 +729,10 @@ def main():
                         time.sleep(0.1)
 
                 if not t_sock:
+                    _emit("[ws-bridge] connect refused 127.0.0.1:%s (slot=%s lcu=%s)" % (target_port, ws_slot_num, is_lcu))
+                    try:
+                        self.connection.sendall(struct.pack("!BB", 0x88, 0x03) + b"503")
+                    except Exception: pass
                     try: self.connection.close()
                     except Exception: pass
                     return
@@ -917,10 +974,10 @@ def main():
                     print("CRITICAL: GITHUB_TOKEN/GITHUB_REPO missing; cannot hand over, staying alive.")
                     time.sleep(60)
 
-            # Verified handover: never drop the live endpoint before the successor
-            # answers /api/ping with a *different* hostname. Previously the runner
-            # exited on a blind 20-minute timer, leaving live_endpoint.txt pointing at
-            # a dead host - every active client lost its League client at that moment.
+            # Verified handover: never drop the live endpoint before the successor answers
+            # /api/ping with a *different* hostname. Previously the runner exited on a blind
+            # 20-minute timer, leaving live_endpoint.txt pointing at a dead host - every
+            # active client lost its League client at that moment.
             if dispatched_next and elapsed_min >= 340:
                 successor = None
                 wait_deadline = time.time() + 28 * 60
